@@ -88,6 +88,92 @@ func TestExportPEMCertOnly(t *testing.T) {
 	}
 }
 
+func TestExportPEMKeyOnlyEncrypted(t *testing.T) {
+	b := testBundle(t)
+
+	plain, err := Export(b, PEMKeyOnly, "")
+	if err != nil {
+		t.Fatalf("Export(plaintext) error = %v", err)
+	}
+
+	enc, err := Export(b, PEMKeyOnly, "strong-pass")
+	if err != nil {
+		t.Fatalf("Export(encrypted) error = %v", err)
+	}
+
+	// (a) encrypted output differs from plaintext output.
+	if bytes.Equal(plain, enc) {
+		t.Fatal("encrypted key output equals plaintext output")
+	}
+	block, _ := pem.Decode(enc)
+	if block == nil || block.Type != "ENCRYPTED PRIVATE KEY" {
+		t.Fatalf("encrypted output is not an ENCRYPTED PRIVATE KEY block: %v", block)
+	}
+
+	// (b) round-trips back through Parse with the right passphrase to the
+	// same key.
+	got, err := Parse(enc, "strong-pass")
+	if err != nil {
+		t.Fatalf("Parse(encrypted, right pass) error = %v", err)
+	}
+	if !bytes.Equal(got.KeyPEM, b.KeyPEM) {
+		t.Error("round-tripped key does not match the original plaintext key")
+	}
+
+	// (c) wrong passphrase fails with ErrWrongPassphrase.
+	if _, err := Parse(enc, "wrong"); !errors.Is(err, ErrWrongPassphrase) {
+		t.Fatalf("Parse(encrypted, wrong pass) error = %v, want ErrWrongPassphrase", err)
+	}
+}
+
+func TestExportPEMBundleEncrypted(t *testing.T) {
+	b := testBundle(t)
+
+	enc, err := Export(b, PEMBundle, "strong-pass")
+	if err != nil {
+		t.Fatalf("Export(encrypted bundle) error = %v", err)
+	}
+
+	// The bundle's key portion must be an encrypted block.
+	var sawEncryptedKey bool
+	rest := enc
+	for {
+		var block *pem.Block
+		block, rest = pem.Decode(rest)
+		if block == nil {
+			break
+		}
+		if block.Type == "ENCRYPTED PRIVATE KEY" {
+			sawEncryptedKey = true
+		}
+		if block.Type == "PRIVATE KEY" {
+			t.Error("bundle contains a plaintext PRIVATE KEY block despite a passphrase")
+		}
+	}
+	if !sawEncryptedKey {
+		t.Fatal("encrypted bundle has no ENCRYPTED PRIVATE KEY block")
+	}
+
+	// Round-trips: leaf, chain and key all recovered with the right pass.
+	got, err := Parse(enc, "strong-pass")
+	if err != nil {
+		t.Fatalf("Parse(encrypted bundle, right pass) error = %v", err)
+	}
+	if !bytes.Equal(got.LeafPEM, b.LeafPEM) {
+		t.Error("re-parsed LeafPEM does not match original")
+	}
+	if !bytes.Equal(got.KeyPEM, b.KeyPEM) {
+		t.Error("re-parsed KeyPEM does not match original")
+	}
+	if len(got.ChainPEM) != len(b.ChainPEM) {
+		t.Errorf("re-parsed ChainPEM len = %d, want %d", len(got.ChainPEM), len(b.ChainPEM))
+	}
+
+	if _, err := Parse(enc, "wrong"); !errors.Is(err, ErrWrongPassphrase) {
+		t.Fatalf("Parse(encrypted bundle, wrong pass) error = %v, want ErrWrongPassphrase", err)
+	}
+}
+
 func TestExportPEMKeyOnly(t *testing.T) {
 	b := testBundle(t)
 

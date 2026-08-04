@@ -132,6 +132,13 @@ func parsePEM(data []byte, passphrase string) (Bundle, error) {
 	}
 
 	if len(certs) == 0 {
+		// A key-only PEM (no certificate) is a valid input -- e.g. the
+		// output of Export(b, PEMKeyOnly, ...). Return a Bundle carrying
+		// just the key; Meta stays zero since there is no leaf to derive
+		// it from.
+		if len(keyPEM) > 0 {
+			return Bundle{KeyPEM: keyPEM}, nil
+		}
 		return Bundle{}, ErrUnrecognizedFormat
 	}
 

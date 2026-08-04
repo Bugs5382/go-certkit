@@ -37,22 +37,24 @@ import (
 
 // Export assembles a Bundle into the given container Format, returning the
 // encoded bytes. newPassphrase protects the output for formats that support
-// encryption (PKCS#12, JKS); pass "" for the PEM/DER/PKCS#7 formats, which
-// are never encrypted by Export.
+// encryption: PKCS#12 and JKS always, and the private key of PEMBundle and
+// PEMKeyOnly (emitted as an "ENCRYPTED PRIVATE KEY" block when a passphrase
+// is supplied, plaintext PKCS#8 otherwise). It is ignored by the cert-only
+// PEM/DER/PKCS#7 formats, which carry no key.
 //
 // Exporting a key-bearing format (PKCS12, JKS, PEMBundle, PEMKeyOnly) from a
 // Bundle with no private key returns ErrNoPrivateKey.
 func Export(b Bundle, f Format, newPassphrase string) ([]byte, error) {
 	switch f {
 	case PEMBundle:
-		return exportPEMBundle(b)
+		return exportPEMBundle(b, newPassphrase)
 	case PEMCertOnly:
 		return append([]byte{}, b.LeafPEM...), nil
 	case PEMKeyOnly:
 		if len(b.KeyPEM) == 0 {
 			return nil, ErrNoPrivateKey
 		}
-		return append([]byte{}, b.KeyPEM...), nil
+		return encodeKeyPEM(b.KeyPEM, newPassphrase)
 	case PEMFullchain:
 		return exportPEMFullchain(b), nil
 	case DER:
@@ -68,17 +70,43 @@ func Export(b Bundle, f Format, newPassphrase string) ([]byte, error) {
 	}
 }
 
-func exportPEMBundle(b Bundle) ([]byte, error) {
+func exportPEMBundle(b Bundle, newPassphrase string) ([]byte, error) {
 	if len(b.KeyPEM) == 0 {
 		return nil, ErrNoPrivateKey
 	}
+	keyPEM, err := encodeKeyPEM(b.KeyPEM, newPassphrase)
+	if err != nil {
+		return nil, err
+	}
 	var out []byte
 	out = append(out, b.LeafPEM...)
-	out = append(out, b.KeyPEM...)
+	out = append(out, keyPEM...)
 	for _, c := range b.ChainPEM {
 		out = append(out, c...)
 	}
 	return out, nil
+}
+
+// encodeKeyPEM returns the PEM encoding of a Bundle's private key. keyPEM is
+// the Bundle's plaintext PKCS#8 "PRIVATE KEY" block. When newPassphrase is
+// empty the key is returned as-is (plaintext PKCS#8); otherwise it is
+// re-encrypted with PBES2 (PBKDF2-HMAC-SHA256 + AES-256-CBC) and emitted as
+// an "ENCRYPTED PRIVATE KEY" block.
+func encodeKeyPEM(keyPEM []byte, newPassphrase string) ([]byte, error) {
+	if newPassphrase == "" {
+		return append([]byte{}, keyPEM...), nil
+	}
+
+	block, _ := pem.Decode(keyPEM)
+	if block == nil {
+		return nil, ErrUnrecognizedFormat
+	}
+
+	encDER, err := encryptPKCS8(block.Bytes, newPassphrase)
+	if err != nil {
+		return nil, err
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: "ENCRYPTED PRIVATE KEY", Bytes: encDER}), nil
 }
 
 func exportPEMFullchain(b Bundle) []byte {
