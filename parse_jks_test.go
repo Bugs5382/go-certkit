@@ -133,3 +133,18 @@ func TestParseJKSWrongPassphrase(t *testing.T) {
 		t.Fatalf("Parse() error = %v, want ErrWrongPassphrase", err)
 	}
 }
+
+func TestParseJKSMagicButCorrupt(t *testing.T) {
+	// JKS magic (0xFEEDFEED) followed by a valid version but a truncated
+	// entry count -- a corrupt/foreign file, not a wrong passphrase. It must
+	// not be reported as ErrWrongPassphrase.
+	corrupt := []byte{0xFE, 0xED, 0xFE, 0xED, 0, 0, 0, 2, 1, 2, 3}
+
+	_, err := Parse(corrupt, "changeit")
+	if !errors.Is(err, ErrUnrecognizedFormat) {
+		t.Fatalf("Parse(corrupt jks) error = %v, want ErrUnrecognizedFormat", err)
+	}
+	if errors.Is(err, ErrWrongPassphrase) {
+		t.Fatal("Parse(corrupt jks) misreported as ErrWrongPassphrase")
+	}
+}

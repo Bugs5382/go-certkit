@@ -28,6 +28,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
+	"strings"
 
 	keystore "github.com/pavlo-v-chernykh/keystore-go/v4"
 	"go.mozilla.org/pkcs7"
@@ -357,16 +358,28 @@ func ParseEntry(data []byte, passphrase, alias string) (Bundle, error) {
 	return bundleFromKeystoreEntry(ks, alias, passphrase)
 }
 
-// loadKeystore decodes the JKS/JCEKS container framing. Any failure --
-// wrong store passphrase or a corrupt/foreign file -- is reported as
-// ErrWrongPassphrase, since JKS has no separate integrity signal from its
-// password-derived check.
+// loadKeystore decodes the JKS/JCEKS container framing. A genuine
+// passphrase/MAC failure is reported as ErrWrongPassphrase; any other load
+// failure (bad magic, truncated or otherwise unparseable content) is
+// reported as ErrUnrecognizedFormat so a corrupt or non-JKS file that merely
+// starts with the right 4-byte magic is not mistaken for a wrong password.
 func loadKeystore(data []byte, passphrase string) (keystore.KeyStore, error) {
 	ks := keystore.New()
 	if err := ks.Load(bytes.NewReader(data), []byte(passphrase)); err != nil {
-		return keystore.KeyStore{}, ErrWrongPassphrase
+		if isKeystorePassphraseError(err) {
+			return keystore.KeyStore{}, ErrWrongPassphrase
+		}
+		return keystore.KeyStore{}, ErrUnrecognizedFormat
 	}
 	return ks, nil
+}
+
+// isKeystorePassphraseError reports whether a keystore-go load/entry error is
+// a passphrase/MAC failure rather than a structural one. keystore-go does not
+// export sentinel errors for these, so the store-level MAC mismatch and the
+// per-key digest mismatch are matched by message ("invalid digest").
+func isKeystorePassphraseError(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "invalid digest")
 }
 
 // bundleFromKeystoreEntry extracts a single named alias -- a PrivateKeyEntry
@@ -377,7 +390,10 @@ func bundleFromKeystoreEntry(ks keystore.KeyStore, alias, passphrase string) (Bu
 	case ks.IsPrivateKeyEntry(alias):
 		entry, err := ks.GetPrivateKeyEntry(alias, []byte(passphrase))
 		if err != nil {
-			return Bundle{}, ErrWrongPassphrase
+			if isKeystorePassphraseError(err) {
+				return Bundle{}, ErrWrongPassphrase
+			}
+			return Bundle{}, ErrUnrecognizedFormat
 		}
 		if len(entry.CertificateChain) == 0 {
 			return Bundle{}, ErrUnrecognizedFormat
