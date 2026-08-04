@@ -80,6 +80,33 @@ if errors.As(err, &multi) {
   `PEMKeyOnly`) needs a private key, but the `Bundle` has none.
 - `ErrMultipleEntries{Aliases []string}` — see above.
 
+### 🔭 Observability
+
+`Parse`, `Export` and `ParseEntry` each have a context-aware variant that
+takes optional logging and tracing. With no options they emit nothing and
+behave exactly like the plain functions.
+
+```go
+logger := golog.NewLogger("my-service") // github.com/Bugs5382/go-log
+
+bundle, err := certkit.ParseContext(ctx, data, "changeit",
+    certkit.WithLogger(logger), // structured logs via go-log
+    certkit.WithTracing(),      // one span per call via the global tracer
+)
+```
+
+- `WithLogger(l)` takes a go-log neutral `Logger`, logging success at debug
+  level and failure at error level with the typed error.
+- `WithTracing()` starts one span (`certkit.Parse`, `certkit.Export` or
+  `certkit.ParseEntry`) from the global OpenTelemetry `TracerProvider`, sets an
+  error status and records the error on failure, and always ends the span. It
+  is a no-op until the application installs a provider.
+
+Only non-sensitive attributes are recorded: the format, byte sizes, chain
+length, whether a private key is present, and public certificate metadata
+(subject, serial, notAfter). The passphrase, private key bytes and raw input
+bytes are never logged or attached to a span.
+
 ## 📄 License
 
 MIT — see [LICENSE](LICENSE).
