@@ -55,6 +55,11 @@ type Option func(*obsConfig)
 type obsConfig struct {
 	logger  golog.Logger
 	tracing bool
+	// active is true once WithLogger or WithTracing has been applied. When
+	// false, the context-aware functions do zero observability work -- no
+	// format detection for attributes, no attribute building, no span -- so
+	// the default (no-opts) path is as cheap as the plain functions.
+	active bool
 }
 
 // WithLogger injects a go-log neutral Logger. Success is logged at debug
@@ -64,6 +69,7 @@ func WithLogger(l golog.Logger) Option {
 	return func(c *obsConfig) {
 		if l != nil {
 			c.logger = l
+			c.active = true
 		}
 	}
 }
@@ -72,7 +78,10 @@ func WithLogger(l golog.Logger) Option {
 // started from the global TracerProvider. It is a no-op unless the
 // application has installed a provider.
 func WithTracing() Option {
-	return func(c *obsConfig) { c.tracing = true }
+	return func(c *obsConfig) {
+		c.tracing = true
+		c.active = true
+	}
 }
 
 // newObsConfig resolves opts, defaulting the logger to a no-op so call sites

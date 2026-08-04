@@ -58,6 +58,9 @@ func Export(b Bundle, f Format, newPassphrase string) ([]byte, error) {
 // certificate bytes.
 func ExportContext(ctx context.Context, b Bundle, f Format, newPassphrase string, opts ...Option) ([]byte, error) {
 	c := newObsConfig(opts...)
+	if !c.active {
+		return export(b, f, newPassphrase)
+	}
 	return observe(ctx, c, "certkit.Export",
 		func(context.Context) ([]byte, error) { return export(b, f, newPassphrase) },
 		func(out []byte, err error) []obsAttr { return exportAttrs(f, b, out, err) },
