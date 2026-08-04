@@ -48,7 +48,7 @@ type Bundle struct {
 type Meta struct {
 	Subject           string
 	Issuer            string
-	SANs              []string
+	SANs              []string // DNS names + IP addresses
 	NotBefore         time.Time
 	NotAfter          time.Time
 	SerialNumber      string
@@ -60,14 +60,12 @@ type Meta struct {
 
 // metaFromLeaf derives Meta from a parsed leaf certificate.
 func metaFromLeaf(c *x509.Certificate) Meta {
-	sans := make([]string, 0, len(c.DNSNames)+len(c.IPAddresses)+len(c.EmailAddresses)+len(c.URIs))
+	// SANs are DNS names + IP addresses only (see the Meta.SANs doc comment);
+	// email and URI SAN entries are intentionally excluded.
+	sans := make([]string, 0, len(c.DNSNames)+len(c.IPAddresses))
 	sans = append(sans, c.DNSNames...)
 	for _, ip := range c.IPAddresses {
 		sans = append(sans, ip.String())
-	}
-	sans = append(sans, c.EmailAddresses...)
-	for _, u := range c.URIs {
-		sans = append(sans, u.String())
 	}
 
 	fingerprint := sha256.Sum256(c.Raw)
