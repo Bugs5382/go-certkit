@@ -1,7 +1,5 @@
-// Package certkit parses, inspects and converts X.509 certificate/key containers
-// (PEM, DER, PKCS#12, PKCS#7, JKS/JCEKS) through one normalized Bundle type.
-//
-// Replace this scaffold with the package's real implementation.
+// Package certkit parses and assembles X.509 certificate material across the
+// common container formats (PEM, DER, PKCS#12, PKCS#7, JKS/JCEKS).
 package certkit
 
 /*
