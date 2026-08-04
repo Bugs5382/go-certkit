@@ -24,6 +24,9 @@ OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 */
 
 import (
+	"crypto/ecdsa"
+	"crypto/ed25519"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
@@ -101,6 +104,60 @@ func TestMetaFromLeaf(t *testing.T) {
 	if meta.IsCA {
 		t.Errorf("IsCA = true, want false for a non-CA leaf")
 	}
+}
+
+func TestMetaFromLeafECDSA(t *testing.T) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate ECDSA key: %v", err)
+	}
+	cert := selfSign(t, "ecdsa.example.com", &key.PublicKey, key)
+
+	meta := metaFromLeaf(cert)
+	if meta.KeyAlgorithm != "ECDSA" {
+		t.Errorf("KeyAlgorithm = %q, want ECDSA", meta.KeyAlgorithm)
+	}
+	if meta.KeyBits != 256 {
+		t.Errorf("KeyBits = %d, want 256 (P-256)", meta.KeyBits)
+	}
+}
+
+func TestMetaFromLeafEd25519(t *testing.T) {
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate Ed25519 key: %v", err)
+	}
+	cert := selfSign(t, "ed25519.example.com", pub, priv)
+
+	meta := metaFromLeaf(cert)
+	if meta.KeyAlgorithm != "Ed25519" {
+		t.Errorf("KeyAlgorithm = %q, want Ed25519", meta.KeyAlgorithm)
+	}
+	// keyAlgorithmAndBits reports the 32-byte Ed25519 public key as 256 bits.
+	if meta.KeyBits != 256 {
+		t.Errorf("KeyBits = %d, want 256", meta.KeyBits)
+	}
+}
+
+// selfSign builds a self-signed leaf certificate for the given public key,
+// signed by signer (the matching private key).
+func selfSign(t *testing.T, cn string, pub, signer any) *x509.Certificate {
+	t.Helper()
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(7),
+		Subject:      pkix.Name{CommonName: cn},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, pub, signer)
+	if err != nil {
+		t.Fatalf("create certificate: %v", err)
+	}
+	cert, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatalf("parse certificate: %v", err)
+	}
+	return cert
 }
 
 // assertSANs verifies that the leaf's SANs are exactly its two DNS names
