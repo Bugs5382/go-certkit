@@ -77,7 +77,7 @@ if errors.As(err, &multi) {
   PKCS#12 archive or JKS/JCEKS keystore.
 - `ErrUnrecognizedFormat` — the input didn't match any supported format.
 - `ErrNoPrivateKey` — a key-bearing export (`PKCS12`, `JKS`, `PEMBundle`,
-  `PEMKeyOnly`) was requested from a `Bundle` with no private key.
+  `PEMKeyOnly`) needs a private key, but the `Bundle` has none.
 - `ErrMultipleEntries{Aliases []string}` — see above.
 
 ## 📄 License
