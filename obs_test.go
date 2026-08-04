@@ -26,6 +26,8 @@ OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 import (
 	"bytes"
 	"context"
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 	"strings"
 	"testing"
@@ -121,6 +123,10 @@ func TestParseContextTracingSpan(t *testing.T) {
 	if got := spans[0].Status().Code; got != codes.Unset {
 		t.Errorf("span status = %v, want Unset for a success", got)
 	}
+	// The format attribute must still be populated on the observed path.
+	if got := spanStringAttr(spans[0], "certkit.format"); got != "pem" {
+		t.Errorf("span certkit.format = %q, want pem", got)
+	}
 }
 
 func TestParseContextTracingErrorStatus(t *testing.T) {
@@ -208,6 +214,51 @@ func TestNoOptsEmitsNothing(t *testing.T) {
 	if logger.buf.Len() != 0 {
 		t.Fatalf("expected no log output without WithLogger, got: %s", logger.buf.String())
 	}
+}
+
+func TestNoOptsDERStillParses(t *testing.T) {
+	// Guard against the no-opts short-circuit accidentally skipping real
+	// work: plain Parse of a bare DER certificate (which exercises
+	// DetectFormat's x509 fallback) must still return a correct Bundle.
+	tc := makeTestChain(t)
+
+	b, err := Parse(tc.LeafCert.Raw, "")
+	if err != nil {
+		t.Fatalf("Parse(DER) error = %v", err)
+	}
+
+	if b.Meta.Subject != "CN=leaf.example.com" {
+		t.Errorf("Meta.Subject = %q, want CN=leaf.example.com", b.Meta.Subject)
+	}
+	if len(b.KeyPEM) != 0 {
+		t.Errorf("KeyPEM = %q, want empty for a bare DER cert", b.KeyPEM)
+	}
+	if len(b.ChainPEM) != 0 {
+		t.Errorf("len(ChainPEM) = %d, want 0", len(b.ChainPEM))
+	}
+
+	block, _ := pem.Decode(b.LeafPEM)
+	if block == nil {
+		t.Fatal("LeafPEM did not decode as PEM")
+	}
+	leaf, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		t.Fatalf("LeafPEM did not parse: %v", err)
+	}
+	if !bytes.Equal(leaf.Raw, tc.LeafCert.Raw) {
+		t.Error("parsed leaf does not match the input DER certificate")
+	}
+}
+
+// spanStringAttr returns the string value of the named span attribute, or ""
+// when absent.
+func spanStringAttr(span sdktrace.ReadOnlySpan, key string) string {
+	for _, kv := range span.Attributes() {
+		if string(kv.Key) == key {
+			return kv.Value.AsString()
+		}
+	}
+	return ""
 }
 
 // newTracerProvider installs an in-memory span recorder as the global tracer

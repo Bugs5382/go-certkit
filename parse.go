@@ -59,6 +59,11 @@ func Parse(data []byte, passphrase string) (Bundle, error) {
 // input bytes.
 func ParseContext(ctx context.Context, data []byte, passphrase string, opts ...Option) (Bundle, error) {
 	c := newObsConfig(opts...)
+	if !c.active {
+		// No logger and no tracing: do exactly what plain Parse does, with
+		// no format detection or attribute building for observability.
+		return parse(data, passphrase)
+	}
 	format := DetectFormat(data)
 	return observe(ctx, c, "certkit.Parse",
 		func(context.Context) (Bundle, error) { return parse(data, passphrase) },
@@ -406,6 +411,9 @@ func ParseEntry(data []byte, passphrase, alias string) (Bundle, error) {
 // name, passphrase, and key material are never logged or placed on the span.
 func ParseEntryContext(ctx context.Context, data []byte, passphrase, alias string, opts ...Option) (Bundle, error) {
 	c := newObsConfig(opts...)
+	if !c.active {
+		return parseEntry(data, passphrase, alias)
+	}
 	format := DetectFormat(data)
 	return observe(ctx, c, "certkit.ParseEntry",
 		func(context.Context) (Bundle, error) { return parseEntry(data, passphrase, alias) },
