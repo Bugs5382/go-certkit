@@ -75,21 +75,7 @@ func TestMetaFromLeaf(t *testing.T) {
 	if meta.Subject != "CN=leaf.example.com" {
 		t.Errorf("Subject = %q, want CN=leaf.example.com", meta.Subject)
 	}
-	if len(meta.SANs) != 3 {
-		t.Fatalf("SANs = %v, want 3 entries (2 DNS + 1 IP)", meta.SANs)
-	}
-	foundDNS, foundIP := 0, 0
-	for _, s := range meta.SANs {
-		if s == "leaf.example.com" || s == "alt.example.com" {
-			foundDNS++
-		}
-		if s == "127.0.0.1" {
-			foundIP++
-		}
-	}
-	if foundDNS != 2 || foundIP != 1 {
-		t.Errorf("SANs = %v, want 2 DNS names + 127.0.0.1", meta.SANs)
-	}
+	assertSANs(t, meta.SANs)
 
 	if !meta.NotAfter.Equal(cert.NotAfter) {
 		t.Errorf("NotAfter = %v, want %v", meta.NotAfter, cert.NotAfter)
@@ -114,6 +100,27 @@ func TestMetaFromLeaf(t *testing.T) {
 	}
 	if meta.IsCA {
 		t.Errorf("IsCA = true, want false for a non-CA leaf")
+	}
+}
+
+// assertSANs verifies that the leaf's SANs are exactly its two DNS names
+// plus its one IP address (and nothing else -- no email/URI entries).
+func assertSANs(t *testing.T, sans []string) {
+	t.Helper()
+	if len(sans) != 3 {
+		t.Fatalf("SANs = %v, want 3 entries (2 DNS + 1 IP)", sans)
+	}
+	foundDNS, foundIP := 0, 0
+	for _, s := range sans {
+		switch s {
+		case "leaf.example.com", "alt.example.com":
+			foundDNS++
+		case "127.0.0.1":
+			foundIP++
+		}
+	}
+	if foundDNS != 2 || foundIP != 1 {
+		t.Errorf("SANs = %v, want 2 DNS names + 127.0.0.1", sans)
 	}
 }
 

@@ -138,33 +138,9 @@ func encryptPKCS8(plaintext []byte, passphrase string) ([]byte, error) {
 // integrity tag) a wrong passphrase and a corrupt/foreign file look the
 // same.
 func decryptPKCS8(data []byte, passphrase string) ([]byte, error) {
-	var info encryptedPrivateKeyInfo
-	if _, err := asn1.Unmarshal(data, &info); err != nil {
-		return nil, ErrWrongPassphrase
-	}
-	if !info.Algo.Algorithm.Equal(oidPBES2) {
-		return nil, ErrWrongPassphrase
-	}
-
-	var params pbes2Params
-	if _, err := asn1.Unmarshal(info.Algo.Parameters.FullBytes, &params); err != nil {
-		return nil, ErrWrongPassphrase
-	}
-	if !params.KeyDerivationFunc.Algorithm.Equal(oidPBKDF2) {
-		return nil, ErrWrongPassphrase
-	}
-	if !params.EncryptionScheme.Algorithm.Equal(oidAES256CBC) {
-		return nil, ErrWrongPassphrase
-	}
-
-	var kdf pbkdf2Params
-	if _, err := asn1.Unmarshal(params.KeyDerivationFunc.Parameters.FullBytes, &kdf); err != nil {
-		return nil, ErrWrongPassphrase
-	}
-
-	var iv []byte
-	if _, err := asn1.Unmarshal(params.EncryptionScheme.Parameters.FullBytes, &iv); err != nil {
-		return nil, ErrWrongPassphrase
+	kdf, iv, ciphertext, err := parsePBES2(data)
+	if err != nil {
+		return nil, err
 	}
 
 	keyLen := kdf.KeyLength
@@ -180,12 +156,12 @@ func decryptPKCS8(data []byte, passphrase string) ([]byte, error) {
 	if err != nil {
 		return nil, ErrWrongPassphrase
 	}
-	if len(info.EncryptedData) == 0 || len(info.EncryptedData)%aes.BlockSize != 0 || len(iv) != aes.BlockSize {
+	if len(ciphertext) == 0 || len(ciphertext)%aes.BlockSize != 0 || len(iv) != aes.BlockSize {
 		return nil, ErrWrongPassphrase
 	}
 
-	plainPadded := make([]byte, len(info.EncryptedData))
-	cipher.NewCBCDecrypter(block, iv).CryptBlocks(plainPadded, info.EncryptedData)
+	plainPadded := make([]byte, len(ciphertext))
+	cipher.NewCBCDecrypter(block, iv).CryptBlocks(plainPadded, ciphertext)
 
 	plaintext, err := pkcs7Unpad(plainPadded, aes.BlockSize)
 	if err != nil {
@@ -193,6 +169,41 @@ func decryptPKCS8(data []byte, passphrase string) ([]byte, error) {
 	}
 
 	return plaintext, nil
+}
+
+// parsePBES2 unmarshals and validates the PBES2 (PBKDF2 + AES-256-CBC)
+// structure of an encrypted PKCS#8 blob, returning the KDF parameters, the
+// IV and the raw ciphertext. Any structural mismatch or unsupported
+// algorithm is reported as ErrWrongPassphrase (see decryptPKCS8).
+func parsePBES2(data []byte) (pbkdf2Params, []byte, []byte, error) {
+	var info encryptedPrivateKeyInfo
+	if _, err := asn1.Unmarshal(data, &info); err != nil {
+		return pbkdf2Params{}, nil, nil, ErrWrongPassphrase
+	}
+	if !info.Algo.Algorithm.Equal(oidPBES2) {
+		return pbkdf2Params{}, nil, nil, ErrWrongPassphrase
+	}
+
+	var params pbes2Params
+	if _, err := asn1.Unmarshal(info.Algo.Parameters.FullBytes, &params); err != nil {
+		return pbkdf2Params{}, nil, nil, ErrWrongPassphrase
+	}
+	if !params.KeyDerivationFunc.Algorithm.Equal(oidPBKDF2) ||
+		!params.EncryptionScheme.Algorithm.Equal(oidAES256CBC) {
+		return pbkdf2Params{}, nil, nil, ErrWrongPassphrase
+	}
+
+	var kdf pbkdf2Params
+	if _, err := asn1.Unmarshal(params.KeyDerivationFunc.Parameters.FullBytes, &kdf); err != nil {
+		return pbkdf2Params{}, nil, nil, ErrWrongPassphrase
+	}
+
+	var iv []byte
+	if _, err := asn1.Unmarshal(params.EncryptionScheme.Parameters.FullBytes, &iv); err != nil {
+		return pbkdf2Params{}, nil, nil, ErrWrongPassphrase
+	}
+
+	return kdf, iv, info.EncryptedData, nil
 }
 
 func pkcs7Pad(data []byte, blockSize int) []byte {
