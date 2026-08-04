@@ -2,3 +2,11 @@ version: "2"
 
 linters:
   default: standard
+  enable:
+    - gocyclo
+  settings:
+    gocyclo:
+      # Plan bar: every function must be UNDER a cyclomatic complexity of 15.
+      # gocyclo reports functions whose complexity exceeds min-complexity, so
+      # 14 flags anything at 15 or above.
+      min-complexity: 14

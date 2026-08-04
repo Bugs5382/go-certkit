@@ -1,5 +1,3 @@
-// Package certkit parses and assembles X.509 certificate material across the
-// common container formats (PEM, DER, PKCS#12, PKCS#7, JKS/JCEKS).
 package certkit
 
 /*
@@ -24,3 +22,28 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 */
+
+import (
+	"errors"
+	"testing"
+)
+
+func TestParseGarbageUnrecognized(t *testing.T) {
+	garbage := []byte("this is not a certificate at all, just some plain text")
+
+	_, err := Parse(garbage, "")
+	if !errors.Is(err, ErrUnrecognizedFormat) {
+		t.Fatalf("Parse(garbage) error = %v, want ErrUnrecognizedFormat", err)
+	}
+}
+
+func TestParseTruncatedASN1(t *testing.T) {
+	// An ASN.1 SEQUENCE (0x30) declaring a long-form length of 1000 bytes
+	// (0x82 0x03 0xE8) but carrying only a couple: a truncated DER blob.
+	truncated := []byte{0x30, 0x82, 0x03, 0xE8, 0x01, 0x02}
+
+	_, err := Parse(truncated, "")
+	if !errors.Is(err, ErrUnrecognizedFormat) {
+		t.Fatalf("Parse(truncated ASN.1) error = %v, want ErrUnrecognizedFormat", err)
+	}
+}
