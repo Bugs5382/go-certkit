@@ -49,6 +49,32 @@ const (
 	JKS
 )
 
+// String returns the canonical short name of a Format (e.g. "pem",
+// "pkcs12"), or "unknown" for Unknown. The names match the format strings
+// used across the certkit surface.
+func (f Format) String() string {
+	switch f {
+	case PKCS12:
+		return "pkcs12"
+	case PEMBundle:
+		return "pem"
+	case PEMCertOnly:
+		return "pem-cert"
+	case PEMKeyOnly:
+		return "pem-key"
+	case PEMFullchain:
+		return "pem-fullchain"
+	case DER:
+		return "der"
+	case PKCS7:
+		return "pkcs7"
+	case JKS:
+		return "jks"
+	default:
+		return "unknown"
+	}
+}
+
 // jksMagic and jceksMagic are the 4-byte magic numbers at the start of a Java
 // KeyStore / JCE KeyStore file.
 const (

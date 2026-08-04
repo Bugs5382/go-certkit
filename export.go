@@ -25,6 +25,7 @@ OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 import (
 	"bytes"
+	"context"
 	"crypto"
 	"crypto/x509"
 	"encoding/pem"
@@ -44,7 +45,40 @@ import (
 //
 // Exporting a key-bearing format (PKCS12, JKS, PEMBundle, PEMKeyOnly) from a
 // Bundle with no private key returns ErrNoPrivateKey.
+//
+// Export is the observability-free wrapper over ExportContext.
 func Export(b Bundle, f Format, newPassphrase string) ([]byte, error) {
+	return ExportContext(context.Background(), b, f, newPassphrase)
+}
+
+// ExportContext is Export with optional, opt-in observability. With no opts
+// it behaves exactly like Export and emits nothing. WithLogger and
+// WithTracing enable structured logging and an OpenTelemetry span
+// ("certkit.Export"); neither ever records newPassphrase, key material, or
+// certificate bytes.
+func ExportContext(ctx context.Context, b Bundle, f Format, newPassphrase string, opts ...Option) ([]byte, error) {
+	c := newObsConfig(opts...)
+	return observe(ctx, c, "certkit.Export",
+		func(context.Context) ([]byte, error) { return export(b, f, newPassphrase) },
+		func(out []byte, err error) []obsAttr { return exportAttrs(f, b, out, err) },
+	)
+}
+
+// exportAttrs builds the non-sensitive attributes for an export operation.
+func exportAttrs(f Format, b Bundle, out []byte, err error) []obsAttr {
+	kvs := []obsAttr{
+		{"certkit.format", f.String()},
+		{"certkit.chain_len", len(b.ChainPEM)},
+		{"certkit.has_private_key", len(b.KeyPEM) > 0},
+	}
+	if err == nil {
+		kvs = append(kvs, obsAttr{"certkit.output_size", len(out)})
+	}
+	return kvs
+}
+
+// export is the observability-free core of Export/ExportContext.
+func export(b Bundle, f Format, newPassphrase string) ([]byte, error) {
 	switch f {
 	case PEMBundle:
 		return exportPEMBundle(b, newPassphrase)

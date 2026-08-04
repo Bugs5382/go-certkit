@@ -25,10 +25,12 @@ OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 import (
 	"bytes"
+	"context"
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
 	"strings"
+	"time"
 
 	keystore "github.com/pavlo-v-chernykh/keystore-go/v4"
 	"go.mozilla.org/pkcs7"
@@ -43,7 +45,52 @@ import (
 // JKS/JCEKS keystore, or a PKCS#7 bag with multiple leaf-like certificates)
 // Parse returns *ErrMultipleEntries carrying the entries' aliases/subjects;
 // use ParseEntry (JKS/JCEKS) to select one.
+//
+// Parse is the observability-free wrapper over ParseContext; see it for the
+// optional logging/tracing variant.
 func Parse(data []byte, passphrase string) (Bundle, error) {
+	return ParseContext(context.Background(), data, passphrase)
+}
+
+// ParseContext is Parse with optional, opt-in observability. With no opts it
+// behaves exactly like Parse and emits nothing. WithLogger and WithTracing
+// enable structured logging and an OpenTelemetry span ("certkit.Parse")
+// respectively; neither ever records the passphrase, key material, or raw
+// input bytes.
+func ParseContext(ctx context.Context, data []byte, passphrase string, opts ...Option) (Bundle, error) {
+	c := newObsConfig(opts...)
+	format := DetectFormat(data)
+	return observe(ctx, c, "certkit.Parse",
+		func(context.Context) (Bundle, error) { return parse(data, passphrase) },
+		func(b Bundle, err error) []obsAttr { return parseAttrs(format, len(data), b, err) },
+	)
+}
+
+// parseAttrs builds the non-sensitive attributes for a parse operation.
+func parseAttrs(format Format, size int, b Bundle, err error) []obsAttr {
+	kvs := []obsAttr{
+		{"certkit.format", format.String()},
+		{"certkit.input_size", size},
+	}
+	if err == nil {
+		kvs = append(kvs, resultAttrs(b)...)
+	}
+	return kvs
+}
+
+// resultAttrs describes a parsed Bundle with public, non-sensitive metadata.
+func resultAttrs(b Bundle) []obsAttr {
+	return []obsAttr{
+		{"certkit.chain_len", len(b.ChainPEM)},
+		{"certkit.has_private_key", len(b.KeyPEM) > 0},
+		{"certkit.subject", b.Meta.Subject},
+		{"certkit.serial", b.Meta.SerialNumber},
+		{"certkit.not_after", b.Meta.NotAfter.Format(time.RFC3339)},
+	}
+}
+
+// parse is the observability-free core of Parse/ParseContext.
+func parse(data []byte, passphrase string) (Bundle, error) {
 	// DetectFormat is a best-effort hint. When it confidently identifies a
 	// format, trust its parser's result -- including a definitive error
 	// like ErrWrongPassphrase or ErrMultipleEntries, which must propagate
@@ -349,8 +396,25 @@ func parseJKS(data []byte, passphrase string) (Bundle, error) {
 
 // ParseEntry decodes the named alias of a JKS/JCEKS keystore into a Bundle.
 // Use it after Parse reports *ErrMultipleEntries for a multi-alias
-// keystore.
+// keystore. It is the observability-free wrapper over ParseEntryContext.
 func ParseEntry(data []byte, passphrase, alias string) (Bundle, error) {
+	return ParseEntryContext(context.Background(), data, passphrase, alias)
+}
+
+// ParseEntryContext is ParseEntry with optional, opt-in observability (span
+// "certkit.ParseEntry"). See ParseContext for the option semantics; the alias
+// name, passphrase, and key material are never logged or placed on the span.
+func ParseEntryContext(ctx context.Context, data []byte, passphrase, alias string, opts ...Option) (Bundle, error) {
+	c := newObsConfig(opts...)
+	format := DetectFormat(data)
+	return observe(ctx, c, "certkit.ParseEntry",
+		func(context.Context) (Bundle, error) { return parseEntry(data, passphrase, alias) },
+		func(b Bundle, err error) []obsAttr { return parseAttrs(format, len(data), b, err) },
+	)
+}
+
+// parseEntry is the observability-free core of ParseEntry/ParseEntryContext.
+func parseEntry(data []byte, passphrase, alias string) (Bundle, error) {
 	ks, err := loadKeystore(data, passphrase)
 	if err != nil {
 		return Bundle{}, err
