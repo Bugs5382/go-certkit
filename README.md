@@ -1,6 +1,6 @@
 # go-certkit 🔐
 
-> Parse, inspect and convert X.509 certificate/key containers — PEM, DER, PKCS#12, PKCS#7 and JKS/JCEKS — through one normalized `Bundle` type.
+> 🧾 Parse, inspect and convert X.509 certificate/key containers — PEM, DER, PKCS#12, PKCS#7 and JKS/JCEKS — through one normalized `Bundle` type.
 
 ## 📦 Install
 
@@ -39,7 +39,7 @@ if err != nil {
 }
 ```
 
-### 🧩 Formats
+### Formats
 
 | Format         | Contains                          |
 |----------------|------------------------------------|
@@ -56,7 +56,7 @@ if err != nil {
 dispatches on that hint and falls back to trying every parser if the hint is
 ambiguous or wrong.
 
-### 🗂️ Multi-entry containers
+### Multi-entry containers
 
 A JKS/JCEKS keystore or a PKCS#7 bag can hold more than one distinct entry.
 When that happens, `Parse` returns `*certkit.ErrMultipleEntries`, carrying
@@ -71,7 +71,7 @@ if errors.As(err, &multi) {
 }
 ```
 
-### ⚠️ Errors
+### Errors
 
 - `ErrWrongPassphrase` — the supplied passphrase failed to decrypt the key,
   PKCS#12 archive or JKS/JCEKS keystore.
@@ -80,7 +80,7 @@ if errors.As(err, &multi) {
   `PEMKeyOnly`) needs a private key, but the `Bundle` has none.
 - `ErrMultipleEntries{Aliases []string}` — see above.
 
-### 🔭 Observability
+### Observability
 
 `Parse`, `Export` and `ParseEntry` each have a context-aware variant that
 takes optional logging and tracing. With no options they emit nothing and
